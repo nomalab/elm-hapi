@@ -20,7 +20,7 @@ cd elm-hapi
 yarn install
 yarn deps
 # Start server
-yarn start
+yarn build && yarn start
 # (replace "yarn" with "npm run" if you are using NPM)
 ```
 
