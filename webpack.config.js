@@ -1,14 +1,16 @@
 var path = require('path')
+var nodeExternals = require('webpack-node-externals')
 
 module.exports = {
-  entry: path.resolve(__dirname, 'examples', 'simpleServer.js'),
+  entry: path.resolve(__dirname, 'examples', 'SimpleServerNode.js'),
 
   output: {
     path: path.resolve(__dirname, 'dist'),
-    filename: 'simpleServer.js'
+    filename: 'SimpleServerNode.js'
   },
 
   target: 'node',
+  externals: [ nodeExternals() ],
 
   resolve: {
     modules: [

@@ -3,7 +3,7 @@
     "deps": "elm-github-install",
     "test": "elm-ordeal test/HapiTest.elm --node --timeout=100",
     "build": "webpack",
-    "start": "node ./dist/simpleServer.js"
+    "start": "node ./dist/SimpleServerNode.js"
   },
   "dependencies": {
     "hapi": "16.5.2"
@@ -13,6 +13,7 @@
     "elm-github-install": "1.1.0",
     "elm-ordeal": "0.0.4",
     "elm-webpack-loader": "4.3.1",
-    "webpack": "3.4.1"
+    "webpack": "3.4.1",
+    "webpack-node-externals": "1.6.0"
   }
 }
