@@ -4,7 +4,7 @@ import Dict exposing (Dict)
 import Task exposing (Task)
 import Json.Decode as Decode exposing (Decoder)
 
-import Native.Hapi
+import Hapi.Native
 
 type Server = Server
 
@@ -124,3 +124,6 @@ getSettings_ =
 getSetting_: String -> Server -> Decode.Value
 getSetting_ =
   Native.Hapi.getSetting
+
+noWarnings: String
+noWarnings = Hapi.Native.noWarnings

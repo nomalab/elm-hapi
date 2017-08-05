@@ -1,18 +1,23 @@
-module SimpleServer exposing (..)
+module ComplexServer exposing (..)
 
 import Dict exposing (Dict)
 import Task exposing (Task)
 
-import Hapi exposing (Request, Response, Replier)
+import Node.Path as Path
+
+import Hapi exposing (Server, Request, Response, Replier)
 import Hapi.Route as Route exposing (Route)
 import Hapi.Connection as Connection
 import Hapi.Http.Response as Response
+
+import Hapi.Plugins.Inert as Inert
 
 type alias Model = {}
 
 type Msg
   = HapiMsg Hapi.Msg
-  | Respond Replier (Result String Response)
+  | Plugged (Result String Server)
+  | Respond (Result (Replier, String) (Replier, Response))
 
 main: Program Never Model Msg
 main =
@@ -41,15 +46,9 @@ update msg model =
         Ok server ->
           let
             a = Debug.log "Server" "created"
-
-            myServer =
-              server
-              -- Setup host and port for our server
-              |> Hapi.withConnection (Connection.basic host port_)
-              -- Add a route to catch all requests
-              |> Hapi.withRoute route
           in
-            model ! [ Hapi.start myServer ]
+            model ! [ Task.attempt Plugged <| Hapi.withPlugins plugins server ]
+
 
       Hapi.Started res -> case res of
         Ok server ->
@@ -64,6 +63,7 @@ update msg model =
           in
             model ! []
 
+
       Hapi.Requested replier request ->
         let
           a = Debug.log "Received request" ((toString request.method) ++ " " ++ request.path)
@@ -74,9 +74,10 @@ update msg model =
           -- -> body parsing & validation
           -- -> database queries
           -- -> response creation
-          response = handleRequest request
+          response = handleRequest replier request
         in
-          model ! [ Task.attempt (Respond replier) response ]
+          model ! [ Task.attempt Respond response ]
+
 
       Hapi.Stopped res -> case res of
         Ok server ->
@@ -92,11 +93,34 @@ update msg model =
             model ! []
 
     -- You own stuff
-    Respond replier result -> case result of
-      Ok response ->
-        model ! [ Hapi.reply replier response ]
+    Plugged result -> case result of
+      Ok server ->
+        let
+          a = Debug.log "Server" "plugins registered"
+
+          myServer =
+            server
+            -- Setup host and port for our server
+            |> Hapi.withConnection (Connection.basic host port_)
+            -- Add a route to serve all assets
+            |> Hapi.withRoute assetsRoute
+            -- Add a route to catch all requests
+            |> Hapi.withRoute catchAllRoute
+        in
+          model ! [ Hapi.start myServer ]
 
       Err error ->
+        let
+          a = Debug.log "Failed to register plugins" error
+        in
+          model ! []
+
+
+    Respond result -> case result of
+      Ok (replier, response) ->
+        model ! [ Hapi.reply replier response ]
+
+      Err (replier, error) ->
         let
           response =
             Response.internalServerError
@@ -112,14 +136,40 @@ subscriptions model =
 -- -----------------------------------------------------------------------------
 -- Server configuration
 
+examplesPath: String
+examplesPath = Path.resolve2 "." "examples"
+
 host: String
 host = "localhost"
 
 port_: String
-port_ = "8080"
+port_ = "8000"
 
-route: Route
-route =
+assetsRoute: Route
+assetsRoute =
+  let
+    defaultDirectoryConfig = Inert.directoryConfigFromPath "./assets"
+    directoryConfig =
+      { defaultDirectoryConfig
+      | redirectToSlash = Just True
+      , listing = Just True
+      }
+
+    defaultRouteConfig = Hapi.defaultRouteConfig
+    routeConfig =
+      { defaultRouteConfig
+      | files = Just { relativeTo = examplesPath }
+      }
+  in
+    { path = "/assets/{param*}"
+    , method = Route.All
+    , handler = Inert.directoryHandler directoryConfig
+    , vhost = Nothing
+    , config = Just routeConfig
+    }
+
+catchAllRoute: Route
+catchAllRoute =
   { path = "/{url*}"
   , method = Route.All
   , handler = Hapi.defaultHandler
@@ -127,16 +177,27 @@ route =
   , config = Nothing
   }
 
+plugins: List Hapi.Plugin
+plugins =
+  [ Inert.plugin Inert.defaultOptions
+  ]
 
 -- -----------------------------------------------------------------------------
 -- All your magic and bizness logic
 
-handleRequest: Request -> Task String Response
-handleRequest request =
-  Response.ok
-  |> Response.withBody (requestToString request)
-  |> Response.withHeader "Content-Type" "text/html; charset=utf-8"
-  |> Task.succeed
+handleRequest: Replier -> Request -> Task (Replier, String) (Replier, Response)
+handleRequest replier request =
+  if String.startsWith "/favicon" request.path
+  then
+    Inert.fileConfigFromPath (examplesPath ++ "/assets/images/elm_logo_monochrome.svg")
+    |> Inert.replyFile replier
+    |> Task.succeed
+  else
+    Response.ok
+    |> Response.withBody (requestToString request)
+    |> Response.withHeader "Content-Type" "text/html; charset=utf-8"
+    |> (\response -> (replier, response))
+    |> Task.succeed
 
 requestToString: Request -> String
 requestToString request =

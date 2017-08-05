@@ -5,22 +5,21 @@ import Task exposing (Task)
 import Json.Encode as Encode
 import Json.Decode as Decode
 
-import Kernel.Helpers
-
 import Hapi.Internals.Helpers as H
 import Hapi.Internals.Replier as Replier
+import Hapi.Internals.Handler as Handler
 
 import Hapi.Http.Request as Request
 import Hapi.Http.Response as Response
 
-import Hapi.Server exposing (Server)
-import Hapi.Route exposing (Route)
+import Hapi.Route as Route
+import Hapi.Route.Config as RouteConfig
+
+import Hapi.Server as Server
 import Hapi.Connection exposing (Connection)
+import Hapi.Plugins.Plugin as Plugin
 
-import Native.Hapi
-
-noWarnings: String
-noWarnings = Kernel.Helpers.removeWarnings
+import Hapi.Native
 
 
 -- -----------------------------------------------------------------------------
@@ -28,14 +27,28 @@ noWarnings = Kernel.Helpers.removeWarnings
 -- -----------------------------------------------------------------------------
 
 type alias Replier = Replier.Replier
+type alias Server = Server.Server
 type alias Request = Request.Request
 type alias Response = Response.Response
+type alias Plugin = Plugin.Plugin
+type alias Route = Route.Route
+type alias RouteConfig = RouteConfig.Config
+
+withPlugins: List Plugin -> Server -> Task String Server
+withPlugins = Native.Hapi.withPlugins
 
 withRoute: Route -> Server -> Server
-withRoute = Hapi.Route.withRoute
+withRoute = Route.withRoute
 
 withConnection: Connection -> Server -> Server
 withConnection = Hapi.Connection.withConnection
+
+defaultHandler: Handler.Handler
+defaultHandler = Handler.init
+
+defaultRouteConfig: RouteConfig
+defaultRouteConfig = RouteConfig.init
+
 
 type alias CreateConfig =
   { settings: Dict String String
@@ -225,3 +238,6 @@ stop_ =
 reply_: Replier -> Encode.Value -> Task Never ()
 reply_ =
   Native.Hapi.reply
+
+noWarnings: String
+noWarnings = Hapi.Native.noWarnings

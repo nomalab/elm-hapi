@@ -2,18 +2,18 @@
   "scripts": {
     "deps": "elm-github-install",
     "test": "elm-ordeal test/HapiTest.elm --node --timeout=100",
-    "build": "webpack",
-    "start": "node ./dist/SimpleServerNode.js"
+    "build:simple": "elm-make --warn ./examples/SimpleServer.elm --output ./dist/SimpleServer.js",
+    "build:complex": "elm-make --warn ./examples/ComplexServer.elm --output ./dist/ComplexServer.js",
+    "build": "npm run build:simple && npm run build:complex",
+    "start": "node ./examples/runner.js"
   },
   "dependencies": {
-    "hapi": "16.5.2"
+    "hapi": "16.5.2",
+    "inert": "^4.2.1"
   },
   "devDependencies": {
     "elm": "0.18.0",
     "elm-github-install": "1.1.0",
-    "elm-ordeal": "0.0.4",
-    "elm-webpack-loader": "4.3.1",
-    "webpack": "3.4.1",
-    "webpack-node-externals": "1.6.0"
+    "elm-ordeal": "0.0.4"
   }
 }

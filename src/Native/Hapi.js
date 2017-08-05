@@ -1,5 +1,6 @@
 var _nomalab$elm_hapi$Native_Hapi = function () {
-  const Hapi = require('hapi')
+  const utils = _nomalab$elm_hapi$Native_Hapi_Utils
+  const Hapi = utils.requireModule('hapi')
   const PassThrough = require('stream').PassThrough
   const helpers = _pauldijou$elm_kernel_helpers$Native_Kernel_Helpers
 
@@ -26,6 +27,18 @@ var _nomalab$elm_hapi$Native_Hapi = function () {
     return helpers.task.fromPromise(server.stop.bind(server))
   }
 
+  function withPlugins(plugins, server) {
+    return helpers.task.fromCallback((succeed, fail) => {
+      server.register(helpers.list.toArray(plugins), err => {
+        if (err) {
+          fail(err.message)
+        } else {
+          succeed(server)
+        }
+      })
+    })
+  }
+
   function withConnection(connection, server) {
     server.connection(connection)
     return server
@@ -36,32 +49,17 @@ var _nomalab$elm_hapi$Native_Hapi = function () {
     return state
   }
 
-  const requestKeys = [
-    "id",
-    "method",
-    "path",
-    "headers",
-    "params",
-    "query",
-    "state",
-    "payload"
-  ]
-
   function handleRequest(request, reply) {
     // If decoder fails, will crash at runtime
-    // se we will normalize the request to prevent any circular structure
+    // so we will normalize the request to prevent any circular structure
     // see: https://github.com/elm-lang/core/issues/890
-    const normalizeRequest = requestKeys.reduce((acc, key) => {
-      acc[key] = request[key]
-      return acc
-    }, {})
+    const normalizeRequest = utils.normalizeRequest(request)
     const internals = getInternals(request.server)
-    const onRequestEvent = A2(internals.events.onRequest, { reply: reply}, normalizeRequest)
+    const onRequestEvent = A2(internals.events.onRequest, { reply: reply, closed: false }, normalizeRequest)
     helpers.task.rawSpawn(internals.callback(onRequestEvent))
   }
 
   function withRoute(route, server) {
-    route.handler = handleRequest
     server.route(route)
     return server
   }
@@ -99,7 +97,7 @@ var _nomalab$elm_hapi$Native_Hapi = function () {
   }
 
   function isClosed(replier) {
-    return replier.closed === true
+    return replier.closed
   }
 
   function reply(replier, response) {
@@ -110,7 +108,9 @@ var _nomalab$elm_hapi$Native_Hapi = function () {
     }
 
     // Assign status code
-    replier.response.code(response.statusCode)
+    if (response.statusCode > 0) {
+      replier.response.code(response.statusCode)
+    }
 
     // Assign HTTP headers
     response.headers.forEach(header => {
@@ -127,18 +127,22 @@ var _nomalab$elm_hapi$Native_Hapi = function () {
     })
 
     // Write body
-    replier.stream.write(response.body, 'utf8')
+    if (replier.stream) {
+      replier.stream.write(response.body, 'utf8')
 
-    if (response.end) {
-      replier.stream.end()
-      replier.closed = true
+      if (response.end) {
+        replier.stream.end()
+        replier.closed = true
+      }
     }
 
     return helpers.task.succeed()
   }
 
   return {
+    identity: function identity(a) { return a },
     create: F2(create),
+    withPlugins: F2(withPlugins),
     withConnection: F2(withConnection),
     withState: F3(withState),
     withRoute: F2(withRoute),
@@ -150,6 +154,7 @@ var _nomalab$elm_hapi$Native_Hapi = function () {
     getSettings: getSettings,
     getSetting: F2(getSetting),
     getVersion: getVersion,
-    isClosed: isClosed
+    isClosed: isClosed,
+    handler: handleRequest
   }
 }()

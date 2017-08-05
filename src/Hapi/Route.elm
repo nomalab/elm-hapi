@@ -3,6 +3,8 @@ module Hapi.Route exposing (..)
 import Json.Encode as Encode
 
 import Hapi.Internals.Helpers as H
+import Hapi.Internals.Handler as Handler exposing (Handler)
+
 import Hapi.Server exposing (Server)
 import Hapi.Http.Method as Method exposing (Method)
 import Hapi.Route.Cache as Cache exposing (Cache)
@@ -19,9 +21,9 @@ type RouteMethod
 type alias Route =
   { method: RouteMethod
   , path: String
+  , handler: Handler
   , vhost: Maybe String
   , config: Maybe Config
-  -- handler will be set inside Native
   }
 
 defaultState: State
@@ -55,6 +57,7 @@ encode: Route -> Encode.Value
 encode route =
   [ Just ("method", encodeRouteMethod route.method)
   , Just ("path", Encode.string route.path)
+  , Just ("handler", Handler.encode route.handler)
   , H.encodeMaybeField "vhost" Encode.string route.vhost
   , H.encodeMaybeField "config" Config.encode route.config
   ]

@@ -69,18 +69,9 @@ keepAlive response =
 -- -----------------------------------------------------------------------------
 -- Predefined responses
 
-continue: Response
-continue = ok |> withStatusCode 100
-
-switchingProcols: Response
-switchingProcols = ok |> withStatusCode 101
-
-processing: Response
-processing = ok |> withStatusCode 102
-
-ok: Response
-ok =
-  { statusCode = 200
+shell: Response
+shell =
+  { statusCode = 0
   , body = ""
   , headers = []
   , states = Dict.empty
@@ -88,56 +79,68 @@ ok =
   , end = True
   }
 
+continue: Response
+continue = shell |> withStatusCode 100
+
+switchingProcols: Response
+switchingProcols = shell |> withStatusCode 101
+
+processing: Response
+processing = shell |> withStatusCode 102
+
+ok: Response
+ok = shell |> withStatusCode 200
+
 created: Response
-created = ok |> withStatusCode 201
+created = shell |> withStatusCode 201
 
 accepted: Response
-accepted = ok |> withStatusCode 202
+accepted = shell |> withStatusCode 202
 
 noContent: Response
-noContent = ok |> withStatusCode 204
+noContent = shell |> withStatusCode 204
 
 redirect: String -> Response
-redirect uri = ok |> withStatusCode 302 |> withHeader "Location" uri
+redirect uri = shell |> withStatusCode 302 |> withHeader "Location" uri
 
 notModified: Response
-notModified = ok |> withStatusCode 304
+notModified = shell |> withStatusCode 304
 
 badRequest: Response
-badRequest = ok |> withStatusCode 400
+badRequest = shell |> withStatusCode 400
 
 unauthorized: Response
-unauthorized = ok |> withStatusCode 401
+unauthorized = shell |> withStatusCode 401
 
 paymentRequired: Response
-paymentRequired = ok |> withStatusCode 402
+paymentRequired = shell |> withStatusCode 402
 
 forbidden: Response
-forbidden = ok |> withStatusCode 403
+forbidden = shell |> withStatusCode 403
 
 notFound: Response
-notFound = ok |> withStatusCode 404
+notFound = shell |> withStatusCode 404
 
 requestTimeout: Response
-requestTimeout = ok |> withStatusCode 408
+requestTimeout = shell |> withStatusCode 408
 
 teapot: Response
-teapot = ok |> withStatusCode 418
+teapot = shell |> withStatusCode 418
 
 unprocessableEntity: Response
-unprocessableEntity = ok |> withStatusCode 422
+unprocessableEntity = shell |> withStatusCode 422
 
 internalServerError: Response
-internalServerError = ok |> withStatusCode 500
+internalServerError = shell |> withStatusCode 500
 
 notImplemented: Response
-notImplemented = ok |> withStatusCode 501
+notImplemented = shell |> withStatusCode 501
 
 badGateway: Response
-badGateway = ok |> withStatusCode 502
+badGateway = shell |> withStatusCode 502
 
 serviceUnavailable: Response
-serviceUnavailable = ok |> withStatusCode 503
+serviceUnavailable = shell |> withStatusCode 503
 
 -- -----------------------------------------------------------------------------
 -- Encoders

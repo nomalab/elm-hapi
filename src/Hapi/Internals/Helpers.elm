@@ -3,7 +3,6 @@ module Hapi.Internals.Helpers exposing (..)
 import Dict exposing (Dict)
 import Json.Encode as Encode
 
-import Native.Hapi
 
 encodeMaybe: (a -> Encode.Value) -> Maybe a -> Encode.Value
 encodeMaybe encoder value =
