@@ -2,8 +2,9 @@ module SimpleServer exposing (..)
 
 import Dict exposing (Dict)
 import Task exposing (Task)
+import Error exposing (Error)
 
-import Hapi exposing (Request, Response, Replier)
+import Hapi exposing (Server, Request, Response, Replier)
 import Hapi.Route as Route exposing (Route)
 import Hapi.Connection as Connection
 import Hapi.Http.Response as Response
@@ -12,7 +13,9 @@ type alias Model = {}
 
 type Msg
   = HapiMsg Hapi.Msg
+  | Started (Result Error Server)
   | Respond Replier (Result String Response)
+  | Responded (Result Error ())
 
 main: Program Never Model Msg
 main =
@@ -24,85 +27,68 @@ main =
 
 init: (Model, Cmd Msg)
 init =
-  {} ! [ Hapi.create { settings = Dict.empty } ]
+  {} ! [ Task.attempt Started initServer ]
+
+initServer: Task Error Server
+initServer =
+  Hapi.create { settings = Dict.empty }
+  |> Task.map (\server ->
+    server
+    -- Setup host and port for our server
+    |> Hapi.withConnection (Connection.basic host port_)
+    -- Add a route to catch all requests
+    |> Hapi.withRoute route
+  )
+  |> Task.andThen Hapi.start
+
 
 update: Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
     -- Hapi stuff
-    HapiMsg hapiMsg -> case hapiMsg of
-      Hapi.Created res -> case res of
-        Err error ->
-          let
-            a = Debug.log "Failed to create server" error
-          in
-            model ! []
+    HapiMsg (Hapi.Requested replier request) ->
+      let
+        a = Debug.log "Received request" ((toString request.method) ++ " " ++ request.path)
 
-        Ok server ->
-          let
-            a = Debug.log "Server" "created"
-
-            myServer =
-              server
-              -- Setup host and port for our server
-              |> Hapi.withConnection (Connection.basic host port_)
-              -- Add a route to catch all requests
-              |> Hapi.withRoute route
-          in
-            model ! [ Hapi.start myServer ]
-
-      Hapi.Started res -> case res of
-        Ok server ->
-          let
-            a = Debug.log "Server" ("started at " ++ host ++ ":" ++ port_)
-          in
-            model ! []
-
-        Err error ->
-          let
-            a = Debug.log "Failed to start server" error
-          in
-            model ! []
-
-      Hapi.Requested replier request ->
-        let
-          a = Debug.log "Received request" ((toString request.method) ++ " " ++ request.path)
-
-          -- This is where you should plug all your logic as a "Task err Response"
-          -- -> routing
-          -- -> authentication
-          -- -> body parsing & validation
-          -- -> database queries
-          -- -> response creation
-          response = handleRequest request
-        in
-          model ! [ Task.attempt (Respond replier) response ]
-
-      Hapi.Stopped res -> case res of
-        Ok server ->
-          let
-            a = Debug.log "Server" "stopped"
-          in
-            model ! []
-
-        Err error ->
-          let
-            a = Debug.log "Failed to stop server" error
-          in
-            model ! []
+        -- This is where you should plug all your logic as a "Task err Response"
+        -- -> routing
+        -- -> authentication
+        -- -> body parsing & validation
+        -- -> database queries
+        -- -> response creation
+        response = handleRequest request
+      in
+        model ! [ Task.attempt (Respond replier) response ]
 
     -- You own stuff
-    Respond replier result -> case result of
-      Ok response ->
-        model ! [ Hapi.reply replier response ]
+    Started result -> case result of
+      Ok server ->
+        let
+          a = Debug.log "Server" ("started at " ++ host ++ ":" ++ port_)
+        in
+          model ! []
 
       Err error ->
         let
-          response =
-            Response.internalServerError
-            |> Response.withBody error
+          a = Debug.log "Failed to start server" error
         in
-          model ! [ Hapi.reply replier response ]
+          model ! []
+
+    Respond replier result ->
+      let
+        response = case result of
+          Ok resp -> resp
+          Err error -> Response.internalServerError |> Response.withBody error
+      in
+        model ! [ Task.attempt Responded (Hapi.reply replier response) ]
+
+    Responded result -> case result of
+      Ok _ -> model ! []
+      Err error ->
+        let
+          a = Debug.log "Failed to respond" error
+        in
+          model ! []
 
 subscriptions: Model -> Sub Msg
 subscriptions model =

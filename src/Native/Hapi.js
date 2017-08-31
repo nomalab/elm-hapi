@@ -3,24 +3,37 @@ var _nomalab$elm_hapi$Native_Hapi = function () {
   const Hapi = utils.requireModule('hapi')
   const PassThrough = require('stream').PassThrough
   const helpers = _pauldijou$elm_kernel_helpers$Native_Kernel_Helpers
+  const settings = {}
 
-  const internals = Symbol('internals')
-
-  function create(internalSettings, config) {
+  function init(stgs) {
     return helpers.task.fromCallback(succeed => {
-      const server = new Hapi.Server({
-        app: config.settings || {},
-        debug: config.debug
-      })
+      for (let key in stgs) {
+        settings[key] = stgs[key]
+      }
+      succeed()
+    })
+  }
 
-      server[internals] = internalSettings
-
-      succeed(server)
+  function create(config) {
+    return helpers.task.fromCallback((succeed, fail) => {
+      try {
+        const server = new Hapi.Server({
+          app: config.settings || {},
+          debug: config.debug
+        })
+        succeed(server)
+      } catch (e) {
+        fail(e)
+      }
     })
   }
 
   function start(server) {
-    return helpers.task.fromPromise(server.start.bind(server))
+    return helpers.task.fromPromise(() =>
+      server.start()
+        .then(() => server)
+        .catch(err => server.stop().then(() =>  Promise.reject(err)))
+    )
   }
 
   function stop(server) {
@@ -30,11 +43,8 @@ var _nomalab$elm_hapi$Native_Hapi = function () {
   function withPlugins(plugins, server) {
     return helpers.task.fromCallback((succeed, fail) => {
       server.register(helpers.list.toArray(plugins), err => {
-        if (err) {
-          fail(err.message)
-        } else {
-          succeed(server)
-        }
+        if (err) { fail(err) }
+        else { succeed(server) }
       })
     })
   }
@@ -54,9 +64,8 @@ var _nomalab$elm_hapi$Native_Hapi = function () {
     // so we will normalize the request to prevent any circular structure
     // see: https://github.com/elm-lang/core/issues/890
     const normalizeRequest = utils.normalizeRequest(request)
-    const internals = getInternals(request.server)
-    const onRequestEvent = A2(internals.events.onRequest, { reply: reply, closed: false }, normalizeRequest)
-    helpers.task.rawSpawn(internals.callback(onRequestEvent))
+    const onRequestEvent = A2(settings.messages.onRequest, { reply: reply, closed: false }, normalizeRequest)
+    helpers.task.rawSpawn(settings.sendToSelf(onRequestEvent))
   }
 
   function withRoute(route, server) {
@@ -80,10 +89,6 @@ var _nomalab$elm_hapi$Native_Hapi = function () {
     })
   }
 
-  function getInternals(server) {
-    return server[internals] || {}
-  }
-
   function getSettings(server) {
     return server.settings || {}
   }
@@ -101,47 +106,52 @@ var _nomalab$elm_hapi$Native_Hapi = function () {
   }
 
   function reply(replier, response) {
-    // Init stream first time
-    if (!replier.response) {
-      replier.stream = new PassThrough()
-      replier.response = replier.reply(replier.stream)
-    }
+    return helpers.task.fromCallback((succeed, fail) => {
+      try {
+        // Init stream first time
+        if (!replier.response) {
+          replier.stream = new PassThrough()
+          replier.response = replier.reply(replier.stream)
+        }
 
-    // Assign status code
-    if (response.statusCode > 0) {
-      replier.response.code(response.statusCode)
-    }
+        // Assign status code
+        if (response.statusCode > 0) {
+          replier.response.code(response.statusCode)
+        }
 
-    // Assign HTTP headers
-    response.headers.forEach(header => {
-      replier.response.header(header.name, header.value, header.options)
-    })
+        // Assign HTTP headers
+        response.headers.forEach(header => {
+          replier.response.header(header.name, header.value, header.options)
+        })
 
-    // Manage states
-    Object.keys(response.states).forEach(name => {
-      replier.response.state(name, response.states[name])
-    })
+        // Manage states
+        Object.keys(response.states).forEach(name => {
+          replier.response.state(name, response.states[name])
+        })
 
-    response.unstate.forEach(name => {
-      replier.response.unstate(name)
-    })
+        response.unstate.forEach(name => {
+          replier.response.unstate(name)
+        })
 
-    // Write body
-    if (replier.stream) {
-      replier.stream.write(response.body, 'utf8')
+        // Write body
+        if (replier.stream) {
+          replier.stream.write(response.body, 'utf8')
 
-      if (response.end) {
-        replier.stream.end()
-        replier.closed = true
+          if (response.end) {
+            replier.stream.end()
+            replier.closed = true
+          }
+        }
+      } catch (e) {
+        fail(e)
       }
-    }
-
-    return helpers.task.succeed()
+    })
   }
 
   return {
     identity: function identity(a) { return a },
-    create: F2(create),
+    init: init,
+    create: create,
     withPlugins: F2(withPlugins),
     withConnection: F2(withConnection),
     withState: F3(withState),

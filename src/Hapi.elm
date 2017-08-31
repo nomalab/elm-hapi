@@ -1,9 +1,10 @@
-effect module Hapi where { command = HapiCmd, subscription = HapiSub } exposing (..)
+effect module Hapi where { subscription = HapiSub } exposing (..)
 
 import Dict exposing (Dict)
 import Task exposing (Task)
 import Json.Encode as Encode
 import Json.Decode as Decode
+import Error exposing (Error)
 
 import Hapi.Internals.Helpers as H
 import Hapi.Internals.Replier as Replier
@@ -34,7 +35,7 @@ type alias Plugin = Plugin.Plugin
 type alias Route = Route.Route
 type alias RouteConfig = RouteConfig.Config
 
-withPlugins: List Plugin -> Server -> Task String Server
+withPlugins: List Plugin -> Server -> Task Error Server
 withPlugins = Native.Hapi.withPlugins
 
 withRoute: Route -> Server -> Server
@@ -62,39 +63,25 @@ encodeCreateConfig config =
   |> Encode.object
 
 
--- -----------------------------------------------------------------------------
--- CMD
--- -----------------------------------------------------------------------------
+create: CreateConfig -> Task Error Server
+create config =
+  Native.Hapi.create (encodeCreateConfig config)
+  |> Task.mapError Error.parse
 
-type HapiCmd msg
-  = Create CreateConfig
-  | Start Server
-  | Stop Server
-  | Reply Replier Response
+start: Server -> Task Error Server
+start server =
+  Native.Hapi.start server
+  |> Task.mapError Error.parse
 
-create: CreateConfig -> Cmd msg
-create =
-  command << Create
+stop: Server -> Task Error ()
+stop server =
+  Native.Hapi.stop server
+  |> Task.mapError Error.parse
 
-start: Server -> Cmd msg
-start =
-  command << Start
-
-stop: Server -> Cmd msg
-stop =
-  command << Stop
-
-reply: Replier -> Response -> Cmd msg
-reply rp res =
-  command (Reply rp res)
-
-cmdMap : (a -> b) -> HapiCmd a -> HapiCmd b
-cmdMap f cmd =
-  case cmd of
-    Create n  -> Create n
-    Start n   -> Start n
-    Stop n    -> Stop n
-    Reply m n -> Reply m n
+reply: Replier -> Response -> Task Error ()
+reply replier response =
+  Native.Hapi.reply replier (Response.encode response)
+  |> Task.mapError Error.parse
 
 
 -- -----------------------------------------------------------------------------
@@ -102,10 +89,7 @@ cmdMap f cmd =
 -- -----------------------------------------------------------------------------
 
 type Msg
-  = Created (Result String Server)
-  | Started (Result String Server)
-  | Stopped (Result String Server)
-  | Requested Replier Request
+  = Requested Replier Request
 
 type HapiSub msg
   = Listen (Msg -> msg)
@@ -124,11 +108,14 @@ subMap f sub =
 -- STATE
 -- -----------------------------------------------------------------------------
 
-type alias State msg = List (HapiSub msg)
+type alias State msg =
+  { initialized: Bool
+  , subs: List (HapiSub msg)
+  }
 
 init : Task Never (State msg)
 init =
-  Task.succeed []
+  Task.succeed { initialized = False, subs = [] }
 
 
 -- -----------------------------------------------------------------------------
@@ -137,45 +124,21 @@ init =
 
 onEffects
   : Platform.Router msg SelfMsg
-  -> List (HapiCmd msg)
   -> List (HapiSub msg)
   -> State msg
   -> Task Never (State msg)
-onEffects router cmds subs state =
-  List.foldl
-    (\cmd taskState ->
-      taskState
-      |> Task.andThen (\currentState ->
-        handleCommand router currentState cmd
-      )
-    )
-    (Task.succeed subs)
-    cmds
-
-handleCommand: Platform.Router msg SelfMsg -> State msg -> HapiCmd msg -> Task Never (State msg)
-handleCommand router state cmd =
-  case cmd of
-    Create config ->
-      create_ (initInternals router) (encodeCreateConfig config)
-      |> Task.map (Created << Ok)
-      |> Task.onError (Task.succeed << Created << Err)
-      |> Task.andThen (msgToApp router state)
-
-    Start server ->
-      start_ server
-      |> Task.map (\_ -> Started <| Ok server)
-      |> Task.onError (Task.succeed << Started << Err)
-      |> Task.andThen (msgToApp router state)
-
-    Stop server ->
-      stop_ server
-      |> Task.map (\_ -> Stopped <| Ok server)
-      |> Task.onError (Task.succeed << Stopped << Err)
-      |> Task.andThen (msgToApp router state)
-
-    Reply replier response ->
-      reply_ replier (Response.encode response)
-      |> Task.map (\_ -> state)
+onEffects router subs state =
+  (
+    if state.initialized
+    then Task.succeed state
+    else
+      Native.Hapi.init
+        { sendToSelf = Platform.sendToSelf router
+        , messages = { onRequest = OnRequest }
+        }
+      |> Task.map (\_ -> { state | initialized = True })
+  )
+  |> Task.map (\s -> { s | subs = subs })
 
 
 -- -----------------------------------------------------------------------------
@@ -187,9 +150,9 @@ type SelfMsg
 
 msgToApp: Platform.Router msg SelfMsg -> State msg -> Msg -> Task Never (State msg)
 msgToApp router state msg =
-  state
-  |> List.map (\sub -> case sub of
-    Listen tagger -> Platform.sendToApp router (tagger msg)
+  state.subs
+  |> List.map (\(Listen tagger) ->
+    Platform.sendToApp router (tagger msg)
   )
   |> Task.sequence
   |> Task.map (\_ -> state)
@@ -206,38 +169,6 @@ onSelfMsg router selfMsg state =
             a = Debug.log "Failed to parse request" error
           in
             Task.succeed state
-
--- Native signatures
-type alias Internals =
-  { callback: SelfMsg -> Task Never ()
-  , events:
-      { onRequest: Replier -> Encode.Value -> SelfMsg
-      }
-  }
-
-initInternals: Platform.Router msg SelfMsg -> Internals
-initInternals router =
-  { callback = Platform.sendToSelf router
-  , events =
-      { onRequest = OnRequest
-      }
-  }
-
-create_: Internals -> Encode.Value -> Task String Server
-create_ =
-  Native.Hapi.create
-
-start_: Server -> Task String ()
-start_ =
-  Native.Hapi.start
-
-stop_: Server -> Task String ()
-stop_ =
-  Native.Hapi.stop
-
-reply_: Replier -> Encode.Value -> Task Never ()
-reply_ =
-  Native.Hapi.reply
 
 noWarnings: String
 noWarnings = Hapi.Native.noWarnings
