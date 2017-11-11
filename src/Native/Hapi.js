@@ -101,6 +101,10 @@ var _nomalab$elm_hapi$Native_Hapi = function () {
     return server.version
   }
 
+  function getProperty(name, server) {
+    return helpers.maybe.parse(server[name])
+  }
+
   function isClosed(replier) {
     return replier.closed
   }
@@ -164,6 +168,7 @@ var _nomalab$elm_hapi$Native_Hapi = function () {
     getSettings: getSettings,
     getSetting: F2(getSetting),
     getVersion: getVersion,
+    getProperty: F2(getProperty),
     isClosed: isClosed,
     handler: handleRequest
   }

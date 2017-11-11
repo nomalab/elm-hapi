@@ -26,6 +26,8 @@ Then open [http://localhost:8080/](http://localhost:8080/) and enjoy!
 
 **Never** try to call `toString` or `Debug.log` on opaque types like `Server`, `Replier`, `Handler` or `Plugin` (or any record or type containing them). Those are internal JavaScript objects which might be recursive so this will crash at runtime with a stack overflow since the Elm runtime does not handle recursive stuff like Node inspect will.
 
+If you really need to print then, consider using `Node.Util.inspect` from `pauldijou/elm-node` package which handle circular dependencies just fine.
+
 ## Usage
 
 **Requires Node 6.4.0 or later**

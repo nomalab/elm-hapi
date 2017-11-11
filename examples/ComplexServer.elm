@@ -2,24 +2,29 @@ module ComplexServer exposing (..)
 
 import Dict exposing (Dict)
 import Task exposing (Task)
+import Time exposing (Time)
 import Error exposing (Error)
 
 import Node.Path as Path
 
 import Hapi exposing (Server, Request, Response, Replier)
+import Hapi.Server exposing (Info, Load)
 import Hapi.Route as Route exposing (Route)
 import Hapi.Connection as Connection
 import Hapi.Http.Response as Response
 
 import Hapi.Plugins.Inert as Inert
 
-type alias Model = {}
+type alias Model =
+  { server: Maybe Server }
 
 type Msg
   = HapiMsg Hapi.Msg
   | Started (Result Error Server)
   | Respond (Result (Replier, String) (Replier, Response))
   | Responded (Result Error ())
+  | Tick Time
+  | Print (Result String (Load, List Info))
 
 main: Program Never Model Msg
 main =
@@ -31,7 +36,7 @@ main =
 
 init: (Model, Cmd Msg)
 init =
-  {} ! [ Task.attempt Started initServer ]
+  { server = Nothing } ! [ Task.attempt Started initServer ]
 
 initServer: Task Error Server
 initServer =
@@ -73,7 +78,7 @@ update msg model =
         let
           a = Debug.log "Server" ("started at " ++ host ++ ":" ++ port_)
         in
-          model ! []
+          { model | server = Just server } ! []
 
       Err error ->
         let
@@ -101,10 +106,41 @@ update msg model =
         in
           model ! []
 
+    Tick _ -> case model.server of
+      Nothing -> model ! []
+      Just server ->
+        let
+          task =
+            Hapi.Server.getLoad server
+            |> Task.andThen (\load ->
+              Hapi.Server.getInfos server
+              |> Task.map (\infos -> (load, infos))
+            )
+        in
+          model ! [ Task.attempt Print task ]
+
+    -- Every 5sec, we are printing some infos about the server current status
+    Print result ->
+      let
+        z = case result of
+          Err err ->
+            Debug.log "Failed to get status" err
+          Ok (load, infos) ->
+            let
+              a = Debug.log "Infos" infos
+              b = Debug.log "Load" load
+              c = Debug.log "-----------------------------------------------" ""
+            in
+              ""
+      in
+        model ! []
 
 subscriptions: Model -> Sub Msg
 subscriptions model =
-  Hapi.listen HapiMsg
+  Sub.batch
+    [ Hapi.listen HapiMsg
+    , Time.every (5 * Time.second) Tick
+    ]
 
 
 -- -----------------------------------------------------------------------------

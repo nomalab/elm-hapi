@@ -59,6 +59,9 @@ getVersion: Server -> String
 getVersion =
   Native.Hapi.getVersion
 
+getProperty: String -> Server -> Maybe Decode.Value
+getProperty =
+  Native.Hapi.getProperty
 
 -- -----------------------------------------------------------------------------
 -- Decoders
@@ -78,13 +81,20 @@ decoderInfos: Decoder (List Info)
 decoderInfos =
   Decode.list decoderInfo
 
+decodePort: Decoder String
+decodePort =
+  Decode.oneOf
+    [ Decode.int |> Decode.map toString
+    , Decode.string
+    ]
+
 decoderInfo: Decoder Info
 decoderInfo =
   Decode.map8 Info
     (Decode.field "id" Decode.string)
     (Decode.field "created" Decode.int)
     (Decode.field "started" Decode.int)
-    (Decode.field "port" Decode.string)
+    (Decode.field "port" decodePort)
     (Decode.field "host" Decode.string)
     (Decode.field "address" Decode.string)
     (Decode.field "protocol" decoderProtocol)

@@ -11,7 +11,7 @@ type IncomingKind
   | Unsub
   | Message
 
-type alias IncomingMessage =
+type alias ClientMessage =
   { id: String
   , kind: IncomingKind
   , value: Encode.Value
@@ -28,7 +28,7 @@ type OutgoingKind
   | Pub
   | Revoke
 
-type alias OutgoingMessage =
+type alias ServerMessage =
   { kind: OutgoingKind
   , value: Encode.Value
   }

@@ -100,8 +100,11 @@ accepted = shell |> withStatusCode 202
 noContent: Response
 noContent = shell |> withStatusCode 204
 
-redirect: String -> Response
-redirect uri = shell |> withStatusCode 302 |> withHeader "Location" uri
+redirect: Response
+redirect = shell |> withStatusCode 302
+
+redirectTo: String -> Response
+redirectTo uri = redirect |> withHeader "Location" uri
 
 notModified: Response
 notModified = shell |> withStatusCode 304
