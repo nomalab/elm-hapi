@@ -1,43 +1,26 @@
 var _nomalab$elm_hapi$Native_Hapi = function () {
-  const utils = _nomalab$elm_hapi$Native_Hapi_Utils
-  const Hapi = utils.requireModule('hapi')
-  const PassThrough = require('stream').PassThrough
-  const helpers = _pauldijou$elm_kernel_helpers$Native_Kernel_Helpers
-  const settings = {}
+  const utils = _nomalab$elm_hapi$Native_Hapi_Utils;
+  const Hapi = utils.requireModule('hapi');
+  const PassThrough = require('stream').PassThrough;
+  const helpers = _pauldijou$elm_kernel_helpers$Native_Kernel_Helpers;
+  const settings = {};
 
-  function init(stgs) {
-    return helpers.task.fromCallback(succeed => {
-      for (let key in stgs) {
-        settings[key] = stgs[key]
+  function createServer(config) {
+    const server = new Hapi.Server({
+      app: config.settings || {},
+      debug: config.debug
+    });
+
+    return {
+      start: function start({ onRequest }) {
+        settings.onRequest = onRequest;
+        return server.start();
+      },
+      stop: function stop() {
+        settings.onRequest = undefined;
+        return server.stop();
       }
-      succeed()
-    })
-  }
-
-  function create(config) {
-    return helpers.task.fromCallback((succeed, fail) => {
-      try {
-        const server = new Hapi.Server({
-          app: config.settings || {},
-          debug: config.debug
-        })
-        succeed(server)
-      } catch (e) {
-        fail(e)
-      }
-    })
-  }
-
-  function start(server) {
-    return helpers.task.fromPromise(() =>
-      server.start()
-        .then(() => server)
-        .catch(err => server.stop().then(() =>  Promise.reject(err)))
-    )
-  }
-
-  function stop(server) {
-    return helpers.task.fromPromise(server.stop.bind(server))
+    }
   }
 
   function withPlugins(plugins, server) {
@@ -63,9 +46,9 @@ var _nomalab$elm_hapi$Native_Hapi = function () {
     // If decoder fails, will crash at runtime
     // so we will normalize the request to prevent any circular structure
     // see: https://github.com/elm-lang/core/issues/890
-    const normalizeRequest = utils.normalizeRequest(request)
-    const onRequestEvent = A2(settings.messages.onRequest, { reply: reply, closed: false }, normalizeRequest)
-    helpers.task.rawSpawn(settings.sendToSelf(onRequestEvent))
+    if (settings.onRequest) {
+      settings.onRequest(reply, utils.normalizeRequest(request));
+    }
   }
 
   function withRoute(route, server) {
@@ -105,57 +88,58 @@ var _nomalab$elm_hapi$Native_Hapi = function () {
     return helpers.maybe.parse(server[name])
   }
 
+  const elmHapiStuff = Symbol('elm-hapi');
+
   function isClosed(replier) {
-    return replier.closed
+    return replier[elmHapiStuff].closed
   }
 
-  function reply(replier, response) {
-    return helpers.task.fromCallback((succeed, fail) => {
-      try {
-        // Init stream first time
-        if (!replier.response) {
-          replier.stream = new PassThrough()
-          replier.response = replier.reply(replier.stream)
-        }
+  function init(replier) {
+    if (!replier[elmHapiStuff]) {
+      const stream = new PassThrough;
+      replier[elmHapiStuff] = {
+        stream: stream,
+        response: replier.reply(stream)
+      };
+    }
+    return replier;
+  }
 
-        // Assign status code
-        if (response.statusCode > 0) {
-          replier.response.code(response.statusCode)
-        }
+  function withStatusCode(code, replier) {
+    if (code > 0) {
+      replier[elmHapiStuff].response.code(code);
+    }
+    return replier;
+  }
 
-        // Assign HTTP headers
-        response.headers.forEach(header => {
-          replier.response.header(header.name, header.value, header.options)
-        })
+  function withHeader(header, replier) {
+    replier[elmHapiStuff].response.header(header.name, header.value, {
+      append: true
+    });
+    return replier;
+  }
 
-        // Manage states
-        Object.keys(response.states).forEach(name => {
-          replier.response.state(name, response.states[name])
-        })
+  function withCookie(cookie, replier) {
+    replier[elmHapiStuff].response.state(cookie.name, cookie);
+    return replier;
+  }
 
-        response.unstate.forEach(name => {
-          replier.response.unstate(name)
-        })
+  function withBody(body, replier) {
+    replier[elmHapiStuff].stream.write(body, 'utf8');
+    return replier;
+  }
 
-        // Write body
-        if (replier.stream) {
-          replier.stream.write(response.body, 'utf8')
-
-          if (response.end) {
-            replier.stream.end()
-            replier.closed = true
-          }
-        }
-      } catch (e) {
-        fail(e)
-      }
-    })
+  function send(end, replier) {
+    if (end) {
+      replier[elmHapiStuff].stream.end()
+      replier[elmHapiStuff].closed = true;
+    }
+    return replier;
   }
 
   return {
     identity: function identity(a) { return a },
-    init: init,
-    create: create,
+    createServer: createServer,
     withPlugins: F2(withPlugins),
     withConnection: F2(withConnection),
     withState: F3(withState),
@@ -170,6 +154,11 @@ var _nomalab$elm_hapi$Native_Hapi = function () {
     getVersion: getVersion,
     getProperty: F2(getProperty),
     isClosed: isClosed,
+    init: init,
+    withStatusCode: F2(withStatusCode),
+    withHeader: F2(withHeader),
+    withBody: F2(withBody),
+    send: F2(send),
     handler: handleRequest
   }
 }()

@@ -1,10 +1,12 @@
-effect module Hapi where { subscription = HapiSub } exposing (..)
+module Hapi exposing (..)
 
 import Dict exposing (Dict)
 import Task exposing (Task)
 import Json.Encode as Encode
 import Json.Decode as Decode
 import Error exposing (Error)
+
+import
 
 import Hapi.Internals.Helpers as H
 import Hapi.Internals.Replier as Replier
@@ -35,6 +37,28 @@ type alias Plugin = Plugin.Plugin
 type alias Route = Route.Route
 type alias RouteConfig = RouteConfig.Config
 
+
+type alias CreateConfig =
+  { settings: Dict String String
+  }
+
+createServer: CreateConfig -> Task Error Server
+createServer config =
+  { implementation = Native.Hapi.createServer (encodeCreateConfig config)
+  , request =
+    { decoder = requestDecoder
+    }
+  , replier =
+    { init = init
+    , withStatusCode = withStatusCode
+    , withHeader = withHeader
+    , withCookie = withCookie
+    , withBody = withBody
+    , send = send
+    }
+  }
+
+
 withPlugins: List Plugin -> Server -> Task Error Server
 withPlugins = Native.Hapi.withPlugins
 
@@ -51,9 +75,8 @@ defaultRouteConfig: RouteConfig
 defaultRouteConfig = RouteConfig.init
 
 
-type alias CreateConfig =
-  { settings: Dict String String
-  }
+-- ----------------------------------------------------------------------------
+-- Internals
 
 encodeCreateConfig: CreateConfig -> Encode.Value
 encodeCreateConfig config =
@@ -62,113 +85,77 @@ encodeCreateConfig config =
   |> List.filterMap identity
   |> Encode.object
 
-
-create: CreateConfig -> Task Error Server
-create config =
-  Native.Hapi.create (encodeCreateConfig config)
-  |> Task.mapError Error.parse
-
-start: Server -> Task Error Server
-start server =
-  Native.Hapi.start server
-  |> Task.mapError Error.parse
-
-stop: Server -> Task Error ()
-stop server =
-  Native.Hapi.stop server
-  |> Task.mapError Error.parse
-
-reply: Replier -> Response -> Task Error ()
-reply replier response =
-  Native.Hapi.reply replier (Response.encode response)
-  |> Task.mapError Error.parse
-
-
--- -----------------------------------------------------------------------------
--- SUB
--- -----------------------------------------------------------------------------
-
-type Msg
-  = Requested Replier Request
-
-type HapiSub msg
-  = Listen (Msg -> msg)
-
-listen: (Msg -> msg) -> Sub msg
-listen =
-  subscription << Listen
-
-subMap : (a -> b) -> HapiSub a -> HapiSub b
-subMap f sub =
-  case sub of
-    Listen tagger -> Listen (tagger >> f)
-
-
--- -----------------------------------------------------------------------------
--- STATE
--- -----------------------------------------------------------------------------
-
-type alias State msg =
-  { initialized: Bool
-  , subs: List (HapiSub msg)
-  }
-
-init : Task Never (State msg)
+init: Replier -> Replier
 init =
-  Task.succeed { initialized = False, subs = [] }
+  Native.Hapi.init
 
+withStatusCode: Int -> Replier -> Replier
+withStatusCode =
+  Native.Hapi.withStatusCode
 
--- -----------------------------------------------------------------------------
--- EFFECTS
--- -----------------------------------------------------------------------------
+withHeader: Header -> Replier -> Replier
+withHeader header =
+  Native.Hapi.withHeader (encodeHeader header)
 
-onEffects
-  : Platform.Router msg SelfMsg
-  -> List (HapiSub msg)
-  -> State msg
-  -> Task Never (State msg)
-onEffects router subs state =
-  (
-    if state.initialized
-    then Task.succeed state
-    else
-      Native.Hapi.init
-        { sendToSelf = Platform.sendToSelf router
-        , messages = { onRequest = OnRequest }
-        }
-      |> Task.map (\_ -> { state | initialized = True })
-  )
-  |> Task.map (\s -> { s | subs = subs })
+withCookie: Cookie -> Replier -> Replier
+withCookie cookie =
+  Native.Hapi.withCookie (encodeCookie header)
 
+withBody: String -> Replier -> Replier
+withBody =
+  Native.Hapi.withBody
 
--- -----------------------------------------------------------------------------
--- INTERNALS
--- -----------------------------------------------------------------------------
+send: Bool -> Replier -> Replier
+send =
+  Native.Hapi.send
 
-type SelfMsg
-  = OnRequest Replier Encode.Value
+encodeHeader: Header -> Json.Encode.Value
+encodeHeader header =
+  Encode.object
+    [ ("name", Encode.string header.name)
+    , ("value", Encode.string header.value)
+    ]
 
-msgToApp: Platform.Router msg SelfMsg -> State msg -> Msg -> Task Never (State msg)
-msgToApp router state msg =
-  state.subs
-  |> List.map (\(Listen tagger) ->
-    Platform.sendToApp router (tagger msg)
-  )
-  |> Task.sequence
-  |> Task.map (\_ -> state)
+encodeCookie: Cookie -> Encode.Value
+encodeCookie cookie =
+  Encode.object
+    [ ( "name", Encode.string cookie.name )
+    , ( "value", Encode.string cookie.value )
+    , ( "options"
+      , [ case cookie.expiration of
+            Nothing -> Nothing
+            Just Session -> Just ("ttl", Encode.null)
+            Just (In seconds) -> Just ("ttl", Encode.int seconds)
+            Just (At date) -> Nothing -- FIXME
+        , Just ("isSecure", Encode.bool cookie.secure)
+        , Just ("isHttpOnly", Encode.bool cookie.httpOnly)
+        , Just
+            ( "isSameSite"
+            , case cookie.sameSite of
+                Nothing -> Encode.bool False
+                Just Strict -> Encode.string "Strict"
+                Just Lax -> Encode.string "Lax"
+            )
+        , Just ("path", Encode.string cookie.path)
+        , Maybe.map (\d -> ("domain", Encode.string d)) cookie.domain
+        , Just ("encoding", if cookie.signed then Encode.string "iron" else Encode.string "none")
+        ]
+        |> List.filterMap identity
+        |> Encode.object
+      )
+    ]
 
-onSelfMsg : Platform.Router msg SelfMsg -> SelfMsg -> State msg -> Task Never (State msg)
-onSelfMsg router selfMsg state =
-  case selfMsg of
-    OnRequest replier jsRequest ->
-      case Decode.decodeValue Request.decoder jsRequest of
-        Ok request -> msgToApp router state (Requested replier request)
+requestDecoder: Decoder Request
+requestDecoder =
+  Decode.map7 Request
+    (Decode.field "method" Server.Method.decoderLower)
+    (Decode.field "path" Decode.string)
+    (Decode.field "headers" <| Decode.dict Decode.string)
+    (Decode.field "params" <| Decode.dict Decode.string)
+    (Decode.field "query" <| Decode.dict Decode.string)
+    (Decode.field "state" <| Decode.dict Decode.string)
+    (Decode.maybe <| Decode.field "payload" Decode.string)
 
-        Err error ->
-          let
-            a = Debug.log "Failed to parse request" error
-          in
-            Task.succeed state
 
 noWarnings: String
 noWarnings = Hapi.Native.noWarnings
